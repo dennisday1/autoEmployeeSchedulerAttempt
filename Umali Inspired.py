@@ -1,503 +1,429 @@
-#import tkinter as tk
-import tkinter as tk
-#from tkinter import ttk, messagebox
-from tkinter import ttk, messagebox
-#import pulp as lp
-import pulp as lp
-#import pandas as pd
-import pandas as pd
-#from datetime import time, datetime
-from datetime import time, datetime
+import tkinter, os, time
+from tkinter import *
+from tkinter import ttk
+from tkinter import messagebox
+from PIL import Image,ImageTk
+import sqlite3
+import hashlib
 
-root = tk.Tk()
-root.title('Shift Scheduler')
+class Database():
+    def __init__(this, name:str = 'assets/databases/.db_1') -> None:    
+        this.database = sqlite3.connect(name)
 
-# Define Employees
-employees = {
-    'Employee 1': {'Max Hours': 12, 'Skill': 'Skill 1', 'Time Off': []},
-    'Employee 2': {'Max Hours': 12, 'Skill': 'Skill 2', 'Time Off': []},
-    'Employee 3': {'Max Hours': 12, 'Skill': 'Skill 1', 'Time Off': []},
-}
+    def create_table(this) -> None:
+        this.database.execute('''CREATE TABLE IF NOT EXISTS users
+             (ID INTEGER PRIMARY KEY AUTOINCREMENT,
+             USERNAME TEXT NOT NULL,
+             PASSWORD_HASH TEXT NOT NULL,
+             MONDAY TEXT DEFAULT 'Present,07:00 AM,05:00 PM',
+             TUESDAY TEXT DEFAULT 'Present,07:00 AM,05:00 PM',
+             WEDNESDAY TEXT DEFAULT 'Present,07:00 AM,05:00 PM',
+             THURSDAY TEXT DEFAULT 'Present,07:00 AM,05:00 PM',
+             FRIDAY TEXT DEFAULT 'Present,07:00 AM,05:00 PM');''')
 
-# Define Shifts
-shift_data = {
-    'Monday': [
-        {'Start Time': time(9, 0), 'End Time': time(12, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-        {'Start Time': time(12, 0), 'End Time': time(15, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-        {'Start Time': time(15, 0), 'End Time': time(18, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-    ],
-    'Tuesday': [
-        {'Start Time': time(9, 0), 'End Time': time(12, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-        {'Start Time': time(12, 0), 'End Time': time(15, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-        {'Start Time': time(15, 0), 'End Time': time(18, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-    ],
-    'Wednesday': [
-        {'Start Time': time(9, 0), 'End Time': time(12, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-        {'Start Time': time(12, 0), 'End Time': time(15, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-        {'Start Time': time(15, 0), 'End Time': time(18, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-    ],
-    'Thursday': [
-        {'Start Time': time(9, 0), 'End Time': time(12, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-        {'Start Time': time(12, 0), 'End Time': time(15, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-        {'Start Time': time(15, 0), 'End Time': time(18, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-    ],
-    'Friday': [
-        {'Start Time': time(9, 0), 'End Time': time(12, 0), 'Skill Required': 'Skill 2', 'Required Employees': 1},
-        {'Start Time': time(12, 0), 'End Time': time(15, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-        {'Start Time': time(15, 0), 'End Time': time(18, 0), 'Skill Required': 'Skill 1', 'Required Employees': 1},
-    ],
-}
+    def user_existence(this, username:str = None) -> bool:
+        result = this.database.execute("SELECT * FROM users WHERE USERNAME=?", (username,)).fetchone()
+        return True if result else False
 
-# Define Shifts
-#define and Iterate
-shifts = list(shift_data.keys())
-
-# Define Employee Data
-
-employee_data = {}
-for emp in employees:
-    employee_data[emp] = {'Max Hours': employees[emp]['Max Hours'], 'Skill': employees[emp]['Skill'], 'Time Off': employees[emp]['Time Off'], 'Scheduled Hours': 0}
-
-
-# Generate Schedule Frame
-
-generate_schedule_frame = ttk.LabelFrame(root, text='Generate Schedule')
-
-generate_schedule_frame.grid(row=1, column=0, columnspan=3, padx=10, pady=10)
-
-#function of generation
-def generate_schedule():
-    # Create LP Problem
-    prob = lp.LpProblem('Shift_Scheduling', lp.LpMaximize)
-    # Create Variables
-    
-    shifts_vars = lp.LpVariable.dicts('Shifts', [(e, d) for e in employees for d in shifts], lowBound=0, upBound=1, cat='Integer')
-
-    # Create Objective Function
-    prob += lp.lpSum([shifts_vars[(e, d)] for e in employees for d in shifts])
-
-    # Create Constraints
-    for e in employees:
-        # Maximum Hours Constraint
-        prob += lp.lpSum([shift_data[d][i]['End Time'].hour - shift_data[d][i]['Start Time'].hour for d in shifts for i in range(len(shift_data[d])) if (e, d) in shifts_vars and shifts_vars[(e, d)] == 1]) <= employee_data[e]['Max Hours'], f"Maximum_Hours_Constraint_{e}"
-
-        # Skill Required Constraint
-        for d in shifts:
-            for i in range(len(shift_data[d])):
-                prob += lp.lpSum([shifts_vars[(e, d)] for e in employees if (e, d) in shifts_vars and employee_data[e]['Skill'] == shift_data[d][i]['Skill Required']]) >= shift_data[d][i]['Required Employees'], f"Skill_Required_Constraint_{d}_{i}"
-
-        # One Shift Per Day Constraint
-        for d in shifts:
-            prob += lp.lpSum([shifts_vars[(e, d)] for e in employees if (e, d) in shifts_vars]) == 1, f"One_Shift_Per_Day_Constraint_{e}_{d}"
-
-    # Time Off Constraint
-    for e in employees:
-        for d in employee_data[e]['Time Off']:
-            prob += lp.lpSum([shifts_vars[(e, d)]]) == 0, f"Time_Off_Constraint_{e}_{d}"
-
-    # Solve Problem
-    #get result
-    prob.solve()
-
-    
-    # Display Results
-    
-    schedule_df = pd.DataFrame(columns=['Employee', 'Day', 'Start Time', 'End Time'])
-    
-    #iterate all e in employes
-    for e in employees:
-        for d in shifts:
-            for i in range(len(shift_data[d])):
-                if shifts_vars[(e, d)].varValue == 1:
-                    schedule_df = schedule_df.append({'Employee': e, 'Day': d, 'Start Time': shift_data[d][i]['Start Time'], 'End Time': shift_data[d][i]['End Time']}, ignore_index=True)
-                    employee_data[e]['Scheduled Hours'] += shift_data[d][i]['End Time'].hour - shift_data[d][i]['Start Time'].hour
-
-    schedule_df = schedule_df.sort_values(by=['Day', 'Start Time'])
-
-    messagebox.showinfo('Schedule Generated', 'Schedule has been generated.')
-
-    
-    # Show Schedule Frame
-    
-    show_schedule_frame = ttk.LabelFrame(root, text='Show Schedule')
-    
-    show_schedule_frame.grid(row=2, column=0, columnspan=3, padx=10, pady=10)
- 
-    #getttt treeview
-    treeview = ttk.Treeview(show_schedule_frame, columns=('Employee', 'Day', 'Start Time', 'End Time'))
-    
-    #gettt treeview headingg
-    treeview.heading('Employee', text='Employee')
-    
-    #gettt treeview headinggg
-    treeview.heading('Day', text='Day')
-    
-    #gettt treeview headinggg2 
-    treeview.heading('Start Time', text='Start Time')
-    
-    #gettt treeview headinggg2 
-    treeview.heading('End Time', text='End Time')
-
-
-    for e in employees:
-        treeview.insert('', 'end', text=e, values=list(schedule_df[schedule_df['Employee'] == e][['Employee', 'Day', 'Start Time', 'End Time']].itertuples(index=False, name=None)))
-
-
-    treeview.pack()
-
-##
-# Modify Schedule Frame
-
-modify_schedule_frame = ttk.LabelFrame(root, text='Modify Schedule')
-
-## Modify Schedule Frame throgh coulumns
-modify_schedule_frame.grid(row=2, column=0, columnspan=3, padx=10, pady=10)
-
-# Define Variables for Modify Schedule
-assigned_shifts = []
-
-# Create Function to Assign Shift
-def assign_shift():
-
-    selected_item = treeview.focus()
-    if selected_item:
-    
-        employee_name = treeview.item(selected_item, 'text')
-
-        shift_info = treeview.item(selected_item, 'values')
-
-        #get day
-        day = shift_info[0]
-        
-        #get startt timea
-        
-        #endtimea
-        
-        #shift
-      
-        start_time = shift_info[1]
-        end_time = shift_info[2]
-        shift = {'Employee': employee_name, 'Day': day, 'Start Time': start_time, 'End Time': end_time}
-        
-        assigned_shifts.append(shift)
-        
-        assigned_shifts_df = pd.DataFrame(assigned_shifts)
-
-        assigned_shifts_df = assigned_shifts_df.sort_values(by=['Day', 'Start Time'])
-
-        assigned_treeview.delete(*assigned_treeview.get_children())
-        
-        for index, row in assigned_shifts_df.iterrows():
-            assigned_treeview.insert('', 'end', text=row['Employee'], values=(row['Day'], row['Start Time'], row['End Time']))
-        treeview.delete(selected_item)
-        
-
-# Create Function to Reassign Shift
-
-def reassign_shift():
-
-    selected_item = assigned_treeview.focus()
-
-    if selected_item:
-        
-        #initialize employee_name
-        employee_name = assigned_treeview.item(selected_item, 'text')
-        
-        #initialize shift_info
-        shift_info = assigned_treeview.item(selected_item, 'values')
-        
-        #initialize
-        day = shift_info[0]
-        
-        #initialize
-        start_time = shift_info[1]
-        
-        #initialize
-        end_time = shift_info[2]
-        
-        #initialize
-        shift = {'Employee': employee_name, 'Day': day, 'Start Time': start_time, 'End Time': end_time}
-        
-        #initialize
-        assigned_shifts.remove(shift)
-        
-        #initialize
-        assigned_shifts_df = pd.DataFrame(assigned_shifts)
-        
-        #initialize
-        assigned_shifts_df = assigned_shifts_df.sort_values(by=['Day', 'Start Time'])
-        
-        #initialize
-        assigned_treeview.delete(*assigned_treeview.get_children())
-        
-        #initialize
-        for index, row in assigned_shifts_df.iterrows():
-            assigned_treeview.insert('', 'end', text=row['Employee'], values=(row['Day'], row['Start Time'], row['End Time']))
-        treeview.insert('', 'end', text=employee_name, values=(day, start_time, end_time))
-        
-
-
-# Create Function to Remove Shift
-
-def remove_shift():
-    selected_item = assigned_treeview.focus()
-
-    if selected_item:
-        
-        #initialize
-        employee_name = assigned_treeview.item(selected_item, 'text')
-        
-        #initialize
-        shift_info = assigned_treeview.item(selected_item, 'values')
-        
-        #initialize
-        day = shift_info[0]
-        
-        #initialize
-        start_time = shift_info[1]
-        
-        #initialize
-        end_time = shift_info[2]
-        
-        #initialize
-        #Employeee
-        #Dayy
-        #Startt timee
-        #endd timeee
-        shift = {'Employee': employee_name, 'Day': day, 'Start Time': start_time, 'End Time': end_time}
-        #assigned_shifts.remove
-        
-        assigned_shifts.remove(shift)
-        
-        #assigned_shifts_df = pd.DataFrame
-        assigned_shifts_df = pd.DataFrame(assigned_shifts)
-        
-        #assigned_shifts_df
-        assigned_shifts_df = assigned_shifts_df.sort_values(by=['Day', 'Start Time'])
-
-        assigned_treeview.delete(*assigned_treeview.get_children())
-
-        for index, row in assigned_shifts_df.iterrows():
-            assigned_treeview.insert('', 'end', text=row['Employee'], values=(row['Day'], row['Start Time'], row['End Time']))
+    def register(this, username:str = None, password:str = None) -> None:
+        if this.user_existence(username = username):
+            return None
+        else:
+            password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+            try:
+                this.database.execute(f"INSERT INTO users (USERNAME, PASSWORD_HASH) VALUES ('{username}', '{password_hash}')")
+                this.database.commit()
+                this.update_shifts(username = username)
+                return True
+            except:
+                return False
             
-# Create Function to Finalize Schedule
-#gett dataa
-def finalize_schedule():
-    # Update Schedule DataFrame
+    def delete_user(this, username:str = None) -> bool:
+        if not this.user_existence(username):
+            return False
+        else:
+            try:
+                this.database.execute("DELETE FROM users WHERE USERNAME=?", (username,))
+                this.database.commit()
+                return True
+            except:
+                return False
+        
+    def login(this, username:str = None, password:str = None) -> bool:
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        return True if this.database.execute("SELECT * FROM users WHERE USERNAME=? AND PASSWORD_HASH=?", (username, password_hash)).fetchone() else False
 
-    for index, row in assigned_shifts_df.iterrows():
-        schedule_df = schedule_df.append(row, ignore_index=True)
-    schedule_df = schedule_df.sort_values(by=['Day', 'Start Time'])
+    def get_users(this) -> list:
+        result = this.database.execute("SELECT USERNAME FROM users").fetchall()
+        return [row[0] for row in result]
     
-    # Save Schedule to CSV
-
-    schedule_df.to_csv('schedule.csv', index=False)
+    def get_shifts(this, username:str) -> dict:
+        try:
+            result = this.database.execute("SELECT MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY FROM users WHERE USERNAME=?", (username,)).fetchone()
+            shift = {}
+            shift['Monday'] = result[0]
+            shift['Tuesday'] = result[1]
+            shift['Wednesday'] = result[2]
+            shift['Thursday'] = result[3]
+            shift['Friday'] = result[4]
+            return shift
+        except:return False
     
-    # Show Success Message
-
-    messagebox.showinfo('Schedule Finalized', 'Schedule has been finalized and saved to schedule.csv.')
-    
-    # Close Application
-
-    root.destroy()
-
-# Assigned Shifts Frame
-
-assigned_shifts_frame = ttk.LabelFrame(modify_schedule_frame, text='Assigned Shifts')
-
-assigned_shifts_frame.grid(row=0, column=0, padx=10, pady=10)
-
-assigned_treeview = ttk.Treeview(assigned_shifts_frame, columns=('Day', 'Start Time', 'End Time'))
-
-assigned_treeview.heading('Day', text='Day')
-
-assigned_treeview.heading('Start Time', text='Start Time')
-
-assigned_treeview.heading('End Time', text='End Time')
-
-assigned_treeview.pack()
-
-# Available Shifts Frame
-
-available_shifts_frame = ttk.LabelFrame(modify_schedule_frame, text='Available Shifts')
-
-available_shifts_frame.grid(row=0, column=1, padx=10, pady=10)
-
-
-treeview = ttk.Treeview(available_shifts_frame, columns=('Day', 'Start Time', 'End Time'))
-
-treeview.heading('Day', text='Day')
-
-treeview.heading('Start Time', text='Start Time')
-
-treeview.heading('End Time', text='End Time')
-
-treeview.pack()
-
-# Button Frame
-
-button_frame = ttk.Frame(modify_schedule_frame)
-
-button_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10)
-
-assign_button = ttk.Button(button_frame, text='Assign Shift', command=assign_shift)
-
-assign_button.grid(row=0, column=0, padx=10, pady=10)
-
-reassign_button = ttk.Button(button_frame, text='Reassign Shift', command=reassign_shift)
-
-reassign_button.grid(row=0, column=1, padx=10, pady=10)
-
-remove_button = ttk.Button(button_frame, text='Remove Shift', command=remove_shift)
-
-remove_button.grid(row=0, column=2, padx=10, pady=10)
-
-finalize_button = ttk.Button(modify_schedule_frame, text='Finalize Schedule', command=finalize_schedule)
-
-finalize_button.grid(row=2, column=1, padx=10, pady=10)
-
-# Employee Time-Off Request System
-
-#def request_time_off():
-
-#    employee_name = employee_name_var.get()
-
-#    day = day_var.get()
-
-#    time_off_requests_df = pd.read_csv('time_off_requests.csv')
-#    time_off_requests_df = time_off_requests_df.append({'Employee': employee_name, 'Day': day}, ignore_index=True)
-#    time_off_requests_df.to_csv('time_off_requests.csv', index=False)
-#    messagebox.showinfo('Time-Off Request Submitted', 'Your time-off request has been submitted.')
-    
-#time_off_frame = ttk.LabelFrame(root, text='Employee Time-Off Request')
-#time_off_frame.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
-
-#employee_name_label = ttk.Label(time_off_frame, text='Employee Name:')
-#employee_name_label.grid(row=0, column=0, padx=10, pady=10)
-
-#employee_name_var = tk.StringVar()
-#employee_name_entry = ttk.Entry(time_off_frame, textvariable=employee_name_var)
-#employee_name_entry.grid(row=0, column=1, padx=10, pady=10)
-
-#day_label = ttk.Label(time_off_frame, text='Day:')
-#day_label.grid(row=1, column=0, padx=10, pady=10)
-
-#day_var = tk.StringVar()
-
-#day_entry = ttk.Entry(time_off_frame, textvariable=day_var)
-
-#day_entry.grid(row=1, column=1, padx=10, pady=10)
-
-#request_button = ttk.Button(time_off_frame, text='Request Time-Off', command=request_time_off)
-#request_button.grid(row=2, column=1, padx=10, pady=10)
-
-# Employee Time-Off Request System
-
-def request_time_off():
-
-    employee_name = employee_name_var.get()
-
-    day = day_var.get()
-
-    time_off_requests_df = pd.read_csv('time_off_requests.csv')
-
-    time_off_requests_df = time_off_requests_df.append({'Employee': employee_name, 'Day': day}, ignore_index=True)
-
-    time_off_requests_df.to_csv('time_off_requests.csv', index=False)
-
-    messagebox.showinfo('Time-Off Request Submitted', 'Your time-off request has been submitted.')
-
-    
-#Get timeas_off
-time_off_frame = ttk.LabelFrame(root, text='Employee Time-Off Request')
-
-time_off_frame.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
-
-#Get employee_name
-
-employee_name_label = ttk.Label(time_off_frame, text='Employee Name:')
-
-employee_name_label.grid(row=0, column=0, padx=10, pady=10)
-
-#get employee_name-Varr
-
-employee_name_var = tk.StringVar()
-
-#get name_entry
-employee_name_entry = ttk.Entry(time_off_frame, textvariable=employee_name_var)
-
-#get name_entry.grid
-employee_name_entry.grid(row=0, column=1, padx=10, pady=10)
-
-#get day_label
-day_label = ttk.Label(time_off_frame, text='Day:')
-
-#getx day_label.grid
-day_label.grid(row=1, column=0, padx=10, pady=10)
-
-#gets day_var
-day_var = tk.StringVar()
-
-#get day_entry
-day_entry = ttk.Entry(time_off_frame, textvariable=day_var)
-
-#get day_entry.grid
-day_entry.grid(row=1, column=1, padx=10, pady=10)
-
-#requestt buttons
-request_button = ttk.Button(time_off_frame, text='Request Time-Off', command=request_time_off)
-
-request_button.grid(row=2, column=1, padx=10, pady=10)
-
-# Open CSV Files
-
-schedule_df = pd.read_csv('schedule.csv')
-time_off_requests_df = pd.read_csv('time_off_requests.csv')
-
-# Display Schedule in Treeview
-for index, row in schedule_df.iterrows():
-    treeview.insert('', 'end', text=row['Employee'], values=(row['Day'], row['Start Time'], row['End Time']))
-
-# Display Assigned Shifts in Treeview
-for index, row in assigned_shifts_df.iterrows():
-    assigned_treeview.insert('', 'end', text=row['Employee'], values=(row['Day'], row['Start Time'], row['End Time']))
-
-# Main Loop
-root.mainloop()
-
-#The script defines a set of employees, their maximum working hours, their skills, and their time off. 
-#It also defines a set of shifts for each day of the week. 
-
-#Each shift has a start time, end time, skill required, and the number of employees required.
-#The script creates LP variables to represent the shifts that each employee is assigned to. 
-
-#It defines an objective function that maximizes the number of shifts assigned to employees.
-#The script creates constraints to ensure that each employee does not exceed their maximum working hours, 
-
-#that the required skills for each shift are met, and that each employee is assigned to only one shift per day.
-#The script solves the LP problem and generates a work schedule that satisfies all the constraints.
-
-#The generated schedule can be displayed to the user through a graphical user interface built using the Tkinter library.
-#The user can interact with the GUI to generate schedules for different months and years, display the schedule for a particular employee, 
-
-#modify the schedule by reassigning or removing shifts, and submit time-off requests.
-#Iterate over each employee in the employees list and populate the treeview widget with the employee's schedule by using the treeview.insert() method.
-
-#Make sure that schedule_df is properly defined before calling this code. It looks like this code is using schedule_df to populate the treeview, 
-#so if schedule_df is not properly defined, this code may not work as expected.
-
-#Make sure that schedule_df is properly defined before calling this code. It looks like this code is using schedule_df to populate the treeview, 
-#so if schedule_df is not properly defined, this code may not work as expected.
-
-#The code starts by importing the necessary libraries, including tkinter, ttk, pandas, and messagebox.
-#The code defines a few functions, including request_time_off(), to handle time-off requests and display the work schedule in the treeview widget.
-
-#The code creates a LabelFrame widget called time_off_frame to hold the time-off request system. 
-#The widget includes a Label widget to prompt the user for their name, an Entry widget to allow the user to enter their name, a Label widget to prompt the user for the day they want to take off, 
-
-#an Entry widget to allow the user to enter the day they want to take off, and a Button widget to submit the time-off request.
-
-#The reassign_shift() function gets the selected item from the assigned_treeview widget, extracts the employee name and shift information from the item, 
-
-#removes the shift from the assigned_shifts list, updates the assigned_treeview widget with the updated list of assigned shifts, 
-#and updates the treeview widget for unassigned shifts with the reassigned shift.
+    def update_shifts(this, username:str = None, monday:str = None, tuesday:str = None, wednesday:str = None, thursday:str = None, friday:str = None) -> bool:
+        if not this.user_existence(username):
+            return False
+        else:
+            query = "UPDATE users SET "
+            values = []
+            if monday is not None:
+                query += "MONDAY=?, "
+                values.append(monday)
+            if tuesday is not None:
+                query += "TUESDAY=?, "
+                values.append(tuesday)
+            if wednesday is not None:
+                query += "WEDNESDAY=?, "
+                values.append(wednesday)
+            if thursday is not None:
+                query += "THURSDAY=?, "
+                values.append(thursday)
+            if friday is not None:
+                query += "FRIDAY=?, "
+                values.append(friday)
+
+            query = query[:-2]
+            query += " WHERE USERNAME=?"
+            values.append(username)
+            try:
+                this.database.execute(query, tuple(values))
+                this.database.commit()
+                return True
+            except:
+                return False
+
+
+class App():
+    def __init__(this) -> None:
+        this.window = tkinter.Tk()
+        this.pioneer = not os.path.exists('assets/databases/.db_1')
+        
+        this.window.resizable(False, False)
+        this.window.protocol("WM_DELETE_WINDOW", False)
+
+        this.window_height = 391
+        this.window_width = 500
+
+        screen_width = this.window.winfo_screenwidth()
+        screen_height = this.window.winfo_screenheight()
+
+        x_cordinate = int((screen_width/2) - (this.window_width/2))
+        y_cordinate = int((screen_height/2) - (this.window_height/2))
+
+        this.window.geometry("{}x{}+{}+{}".format(this.window_width, this.window_height, x_cordinate, y_cordinate))
+        this.window.attributes('-topmost', True)
+        this.window.overrideredirect(1)
+        this.window.configure(bg='white')
+
+        
+        this.canvas= Canvas(this.window, width= this.window_width, height= this.window_height,  bd = 0, highlightbackground = 'white', highlightthickness = 0, highlightcolor='white')
+        this.canvas.configure(bg='white')
+        this.canvas.pack()
+
+        this.title_bar= Canvas(this.canvas, width= this.window_width, height= 30,  bd = 0, highlightbackground = 'white', highlightthickness = 0, highlightcolor='white')
+        this.title_bar.configure(bg='#ECEDEE')
+        this.icon= ImageTk.PhotoImage(Image.open("assets/icons/icon.png"))
+        this.title_bar.create_image(16, 16,image=this.icon)
+        this.title_bar.place(x = 0, y = 0)
+        this.title_2 = tkinter.Label(this.title_bar, text = "Employee Timetable Generator", font=("Arial Rounded MT Bold", 9), justify = 'center', foreground = 'gray')
+        this.title_2.place(x = 154, y = 4)
+
+        this.display= ImageTk.PhotoImage(Image.open("assets/icons/user_l.jpg"))
+        this.display_image = this.canvas.create_image(this.window_width/2, this.window_height/2-60, anchor=tkinter.CENTER,image=this.display)
+
+        this.user_img= ImageTk.PhotoImage(Image.open("assets/icons/user_s.png"))
+        this.user_image = this.canvas.create_image(158, 210, anchor=tkinter.CENTER,image=this.user_img)
+        this.lock_img= ImageTk.PhotoImage(Image.open("assets/icons/lock.png"))
+        this.lock_image = this.canvas.create_image(158, 240, anchor=tkinter.CENTER,image=this.lock_img)
+        
+        this.exit_btn= ImageTk.PhotoImage(Image.open("assets/icons/exit.png"))
+        this.exit_button = this.canvas.create_image(486, 378, anchor=tkinter.CENTER,image=this.exit_btn)
+        this.canvas.tag_bind(this.exit_button, "<Button-1>", lambda event: this.window.destroy())
+        
+        this.username_entry = ttk.Entry(this.canvas, width=19, font=("Arial", 11, 'bold'), justify = 'center', foreground = '#113C83')
+        this.username_entry.focus_set()
+        this.username_entry.place(x=250, y=210, anchor=CENTER)
+        
+        this.password_entry = ttk.Entry(this.canvas, width=19, show="●", font=("Helvetica", 11, 'bold'), justify = 'center', foreground = '#333F43')
+        this.password_entry.place(x=250, y=240, anchor=CENTER)
+
+        this.database = Database('assets/databases/.db_1')
+        if this.pioneer == False:
+            this.database.user_existence('admin')
+
+
+        this.register_btn= ImageTk.PhotoImage(Image.open("assets/icons/register.png"))
+        if this.pioneer == True:
+            this.register_button = this.canvas.create_image(254, 275, anchor=tkinter.CENTER,image=this.register_btn)
+        else:
+            this.register_button = this.canvas.create_image(297, 275, anchor=tkinter.CENTER,image=this.register_btn)
+        this.canvas.tag_bind(this.register_button, "<Button-1>", this.__register_user)
+
+        this.register_lable = ttk.Label(this.canvas, text = 'Register', font=("Helvetica", 10), justify = 'center', foreground = '#636466', background = '#B9BABB', cursor = 'hand2')
+        if this.pioneer == True:
+            this.register_lable.place(x = 226, y = 265)
+        else:
+            this.register_lable.place(x = 269, y = 265)
+        this.register_lable.bind("<Button-1>", this.__register_user)
+
+        if not this.pioneer:
+            this.login_btn= ImageTk.PhotoImage(Image.open("assets/icons/login.png"))
+            this.login_button = this.canvas.create_image(205, 275, anchor=tkinter.CENTER,image=this.login_btn)
+            this.canvas.tag_bind(this.login_button, "<Button-1>", this.__login_user)
+
+            this.login_lable = ttk.Label(this.canvas, text = 'Login', font=("Helvetica", 10), justify = 'center', foreground = 'white', background = '#419FD9', cursor = 'hand2')
+            this.login_lable.place(x = 187, y = 265)
+            this.login_lable.bind("<Button-1>", this.__login_user)
+
+        
+        if this.pioneer:
+            this.database.create_table()
+            messagebox.showinfo('New comer!', 'You need to register as admin first.')
+
+
+
+    def __login_user(this, event) -> None:
+        username = this.username_entry.get().strip()
+        password = this.password_entry.get().strip()
+        if len(username) != 0 or len(password) != 0:
+            if this.database.login(username = username, password = password):
+                this.canvas.destroy()
+            
+                this.canvas= Canvas(this.window, width= this.window_width, height= this.window_height,  bd = 0, highlightbackground = 'white', highlightthickness = 0, highlightcolor='white')
+                this.canvas.configure(bg='white')
+                this.canvas.pack()
+
+                this.title_bar= Canvas(this.canvas, width= this.window_width, height= 30,  bd = 0, highlightbackground = 'white', highlightthickness = 0, highlightcolor='white')
+                this.title_bar.configure(bg='#ECEDEE')
+                this.icon= ImageTk.PhotoImage(Image.open("assets/icons/icon.png"))
+                this.title_bar.create_image(16, 16,image=this.icon)
+                this.title_bar.place(x = 0, y = 0)
+                this.title_2 = tkinter.Label(this.title_bar, text = "Employee Timetable Generator", font=("Arial Rounded MT Bold", 9), justify = 'center', foreground = 'gray')
+                this.title_2.place(x = 154, y = 4)
+
+                this.exit_btn= ImageTk.PhotoImage(Image.open("assets/icons/exit.png"))
+                this.exit_button = this.canvas.create_image(486, 378, anchor=tkinter.CENTER,image=this.exit_btn)
+                this.canvas.tag_bind(this.exit_button, "<Button-1>", lambda event: this.window.destroy())
+
+                if username == 'admin':
+                    this.users_icon= ImageTk.PhotoImage(Image.open("assets/icons/users.png"))
+                    this.canvas.create_image(17, 40, anchor=tkinter.CENTER, image=this.users_icon)
+                    
+                    list_heading = ttk.Label(this.canvas, text = 'Employees', font=("Arial Rounded MT Bold", 9), justify = 'center', foreground = '#396CD1', background = 'white')
+                    list_heading.place(x = 30, y = 30)
+
+                    info_lbl = tkinter.Label(this.canvas, text = 'Select employee from left pane to see details', background = 'white', foreground = '#DADADA', font = ('monopace', 12, 'bold'))
+                    info_lbl.place(x = 140, y = 200)
+
+                    scrollbar = tkinter.Scrollbar(this.canvas)
+                    listbox = tkinter.Listbox(this.canvas, width = 17, height = 21, font = ("Arial", 9), yscrollcommand=scrollbar.set, border = 1, relief = 'flat', highlightthickness = 1, highlightcolor = 'white', background = '#D8F0FC', selectbackground = "#4BAFE1", activestyle = 'none')
+                    users = this.database.get_users()
+                    users.remove('admin')
+                    for user in users:listbox.insert("end", f"  {user}")
+                    listbox.place(x = 0, y = 51)
+                    scrollbar.config(command=listbox.yview)
+                    def on_select(event):
+                        try:        
+                            selected_user = event.widget.get(event.widget.curselection()).strip()
+
+                            this.del_user_icon = ImageTk.PhotoImage(Image.open("assets/icons/del_user.png"))
+                            this.del_user_btn = this.canvas.create_image(480, 50, anchor = tkinter.CENTER, image=this.del_user_icon)
+                            this.canvas.tag_bind(this.del_user_btn, "<Button-1>", lambda event: delete_user_from_database())
+                            
+                            def delete_user_from_database() -> None:
+                                if messagebox.askyesno("Confirm Remove", f'Do you really want to remove "{selected_user}" from database?') == True:
+                                    status = this.database.delete_user(selected_user)
+                                    if messagebox.askyesno('Relauch', 'Application relauch is required to synchronize database.\nDo you want to continue?') == True:
+                                        this.window.destroy()
+
+                            monday_frame = ttk.LabelFrame(this.canvas, text = 'Monday', width = 370, height = 57)
+                            monday_frame.place(x = 126, y = 70)
+                            tuesday_frame = ttk.LabelFrame(this.canvas, text = 'Tuesday', width = 370, height = 57)
+                            tuesday_frame.place(x = 126, y = 130)
+                            wednesday_frame = ttk.LabelFrame(this.canvas, text = 'Wednesday', width = 370, height = 57)
+                            wednesday_frame.place(x = 126, y = 190)
+                            thursday_frame = ttk.LabelFrame(this.canvas, text = 'Thursday', width = 370, height = 57)
+                            thursday_frame.place(x = 126, y = 250)
+                            friday_frame = ttk.LabelFrame(this.canvas, text = 'Friday', width = 370, height = 57)
+                            friday_frame.place(x = 126, y = 310)
+
+                            frames = [monday_frame, tuesday_frame, wednesday_frame, thursday_frame, friday_frame]
+                            raw_data = this.database.get_shifts(username = selected_user)
+                            
+                            attendaces = [value.split(',')[0] for key, value in raw_data.items()]
+                            shifts = [f"{value.split(',')[1]} - {value.split(',')[2]}" for key, value in raw_data.items()]
+                            
+                            for frame, attendance, shift in zip(frames, attendaces, shifts):
+                                attendance_lbl = ttk.Label(frame, text = 'Attendance ●', font = ("Arial", 9))
+                                attendance_lbl.place(x = 40, y = 3)
+                                attendance_vale = ttk.Label(frame, text = attendance, font = ("Arial", 9), foreground = 'red' if attendance.lower() == 'absent' else 'green' if attendance.lower() == 'present' else '#CD7702')
+                                attendance_vale.place(x = 115, y = 3)
+
+                                shift_lbl = ttk.Label(frame, text = 'Shift ●', font = ("Arial", 9))
+                                shift_lbl.place(x = 195, y = 3)
+                                shift_etr = ttk.Label(frame, text = '00:00 AM - 00:00 PM' if attendance.lower() == 'absent' else shift if attendance.lower() == 'present' else '00:00 AM - 00:00 AM', font = ("Arial", 9), foreground = 'blue' if attendance.lower() == 'present' else 'grey')
+                                shift_etr.place(x = 233, y = 3)
+                        except:pass
+                    listbox.bind("<<ListboxSelect>>", on_select)
+                else:                
+                    x_lblfrm = 25
+                    width_lblfrm = 450
+                    monday_frame = ttk.LabelFrame(this.canvas, text = 'Monday', width = width_lblfrm, height = 57)
+                    monday_frame.place(x = x_lblfrm, y = 35)
+                    tuesday_frame = ttk.LabelFrame(this.canvas, text = 'Tuesday', width = width_lblfrm, height = 57)
+                    tuesday_frame.place(x = x_lblfrm, y = 95)
+                    wednesday_frame = ttk.LabelFrame(this.canvas, text = 'Wednesday', width = width_lblfrm, height = 57)
+                    wednesday_frame.place(x = x_lblfrm, y = 155)
+                    thursday_frame = ttk.LabelFrame(this.canvas, text = 'Thursday', width = width_lblfrm, height = 57)
+                    thursday_frame.place(x = x_lblfrm, y = 215)
+                    friday_frame = ttk.LabelFrame(this.canvas, text = 'Friday', width = width_lblfrm, height = 57)
+                    friday_frame.place(x = x_lblfrm, y = 275)
+
+                    frames = [monday_frame, tuesday_frame, wednesday_frame, thursday_frame, friday_frame]
+                    raw_data = this.database.get_shifts(username = username)
+                    
+                    attendaces = [value.split(',')[0] for key, value in raw_data.items()]
+                    shifts = [f"{value.split(',')[1]} - {value.split(',')[2]}" for key, value in raw_data.items()]
+                    shifts = list(map(lambda x: tuple(sub.split()[0] for sub in x.split(' - ')), shifts))
+
+                    for frame in frames:
+                        attendance_lbl = ttk.Label(frame, text = 'Attendance ●', font = ("Arial", 9))
+                        attendance_lbl.place(x = 67, y = 3)
+                        shift_lbl = ttk.Label(frame, text = 'Shift ●', font = ("Arial", 9))
+                        shift_lbl.place(x = 260, y = 3)
+                        am_lbl = ttk.Label(frame, text = 'AM  to', font = ("Arial", 9))
+                        am_lbl.place(x = 337, y = 3)
+                        am_lbl = ttk.Label(frame, text = 'PM', font = ("Arial", 9))
+                        am_lbl.place(x = 412, y = 3)
+
+                    monday_attendance_options = ["Present   ", "Absent    ", "Sick Leave"]
+                    monday_attendance = tkinter.StringVar()
+                    monday_dropdown = ttk.OptionMenu(monday_frame, monday_attendance, monday_attendance_options[0], *monday_attendance_options)
+                    monday_dropdown.place(x = 140, y = 1)
+                    monday_attendance.set(attendaces[0])
+                    monday_shift_start = ttk.Entry(monday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    monday_shift_start.place(x = 300, y = 3)
+                    monday_shift_start.insert(0, shifts[0][0].lstrip('0'))
+                    monday_shift_end = ttk.Entry(monday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    monday_shift_end.insert(0, shifts[0][1].lstrip('0'))
+                    monday_shift_end.place(x = 376, y = 3)
+
+                    tuesday_attendance_options = ["Present   ", "Absent    ", "Sick Leave"]
+                    tuesday_attendance = tkinter.StringVar()
+                    tuesday_dropdown = ttk.OptionMenu(tuesday_frame, tuesday_attendance, tuesday_attendance_options[0], *tuesday_attendance_options)
+                    tuesday_dropdown.place(x = 140, y = 2)
+                    tuesday_attendance.set(attendaces[1])
+                    tuesday_shift_start = ttk.Entry(tuesday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    tuesday_shift_start.place(x = 300, y = 3)
+                    tuesday_shift_start.insert(0, shifts[1][0].lstrip('0'))
+                    tuesday_shift_end = ttk.Entry(tuesday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    tuesday_shift_end.insert(0, shifts[1][1].lstrip('0'))
+                    tuesday_shift_end.place(x = 376, y = 3)
+
+                    wednesday_attendance_options = ["Present   ", "Absent    ", "Sick Leave"]
+                    wednesday_attendance = tkinter.StringVar()
+                    wednesday_dropdown = ttk.OptionMenu(wednesday_frame, wednesday_attendance, wednesday_attendance_options[0], *wednesday_attendance_options)
+                    wednesday_dropdown.place(x = 140, y = 2)
+                    wednesday_attendance.set(attendaces[2])
+                    wednesday_shift_start = ttk.Entry(wednesday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    wednesday_shift_start.place(x = 300, y = 3)
+                    wednesday_shift_start.insert(0, shifts[2][0].lstrip('0'))
+                    wednesday_shift_end = ttk.Entry(wednesday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    wednesday_shift_end.insert(0, shifts[2][1].lstrip('0'))
+                    wednesday_shift_end.place(x = 376, y = 3)
+
+                    thursday_attendance_options = ["Present   ", "Absent    ", "Sick Leave"]
+                    thursday_attendance = tkinter.StringVar()
+                    thursday_dropdown = ttk.OptionMenu(thursday_frame, thursday_attendance, thursday_attendance_options[0], *thursday_attendance_options)
+                    thursday_dropdown.place(x = 140, y = 2)
+                    thursday_attendance.set(attendaces[3])
+                    thursday_shift_start = ttk.Entry(thursday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    thursday_shift_start.place(x = 300, y = 3)
+                    thursday_shift_start.insert(0, shifts[3][0].lstrip('0'))
+                    thursday_shift_end = ttk.Entry(thursday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    thursday_shift_end.insert(0, shifts[3][1].lstrip('0'))
+                    thursday_shift_end.place(x = 376, y = 3)
+
+                    friday_attendance_options = ["Present   ", "Absent    ", "Sick Leave"]
+                    friday_attendance = tkinter.StringVar()
+                    friday_dropdown = ttk.OptionMenu(friday_frame, friday_attendance, friday_attendance_options[0], *friday_attendance_options)
+                    friday_dropdown.place(x = 140, y = 2)
+                    friday_attendance.set(attendaces[4])
+                    friday_shift_start = ttk.Entry(friday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    friday_shift_start.place(x = 300, y = 3)
+                    friday_shift_start.insert(0, shifts[4][0].lstrip('0'))
+                    friday_shift_end = ttk.Entry(friday_frame, font = ("Arial", 9), foreground = 'blue', width = 4, justify = 'center')
+                    friday_shift_end.insert(0, shifts[4][1].lstrip('0'))
+                    friday_shift_end.place(x = 376, y = 3)
+
+                    def save_schedule():
+                        monday_scehdule = f"{monday_attendance.get().strip()},{monday_shift_start.get()} AM,{monday_shift_end.get()} PM"
+                        tuesday_scehdule = f"{tuesday_attendance.get().strip()},{tuesday_shift_start.get()} AM,{tuesday_shift_end.get()} PM"
+                        wednesday_scehdule = f"{wednesday_attendance.get().strip()},{wednesday_shift_start.get()} AM,{wednesday_shift_end.get()} PM"
+                        thursday_scehdule = f"{thursday_attendance.get().strip()},{thursday_shift_start.get()} AM,{thursday_shift_end.get()} PM"
+                        friday_scehdule = f"{friday_attendance.get().strip()},{friday_shift_start.get()} AM,{friday_shift_end.get()} PM"
+                        this.database.update_shifts(username = username, monday = monday_scehdule, tuesday = tuesday_scehdule, wednesday = wednesday_scehdule, thursday = thursday_scehdule, friday = friday_scehdule)
+                        messagebox.showinfo('Success!', 'Your schedule saved successfully!')
+
+                    save_btn = ttk.Button(this.canvas, text = 'Save', command = save_schedule)
+                    save_btn.place(x = 215, y = 345)
+            else:
+                messagebox.showerror ('Error', 'Invalid credentials!')
+        else:
+            messagebox.showerror('Invalid Credentials!', 'Username or password must not be empty!')
+
+    def __register_user(this, event) -> None:
+        username = this.username_entry.get().strip()
+        password = this.password_entry.get().strip()
+        if len(username) < 5 or len(password) < 5:
+            messagebox.showerror('Invalid Credentials!', 'Username or password must be atleat of lenght 5!')
+        elif len(username) >= 5 or len(password) >= 5:
+            if this.database.user_existence(username = username) == True:
+                messagebox.showwarning(username, f'User "{username}" already registered!')
+            else:
+                this.database.register(username, password)
+                messagebox.showinfo(username, f'User "{username}" has been registered succesfully!')
+
+            this.canvas.delete(this.register_btn)
+            this.canvas.delete(this.register_button)
+            this.register_lable.place(x = 269, y = 265)
+            this.register_button = this.canvas.create_image(297, 275, anchor=tkinter.CENTER,image=this.register_btn)
+
+            this.username_entry.delete(0, tkinter.END)
+            this.password_entry.delete(0, tkinter.END)
+            this.username_entry.focus_set()
+            
+            this.login_btn= ImageTk.PhotoImage(Image.open("assets/icons/login.png"))
+            this.login_button = this.canvas.create_image(205, 275, anchor=tkinter.CENTER,image=this.login_btn)
+            this.canvas.tag_bind(this.login_button, "<Button-1>", this.__login_user)
+
+            this.login_lable = ttk.Label(this.canvas, text = 'Login', font=("Helvetica", 10), justify = 'center', foreground = 'white', background = '#419FD9', cursor = 'hand2')
+            this.login_lable.place(x = 187, y = 265)
+            this.login_lable.bind("<Button-1>", this.__login_user)
+        else:
+            messagebox.showerror('Invalid Credentials!', 'Username or password must not be empty!')
+
+
+
+
+    def run(this) -> None:
+        this.window.mainloop()
+
+
+
+
+
+
+
+
+if __name__ == "__main__":
+    App().run()
